@@ -37,7 +37,7 @@ public partial class SettingsWindow : Window
 
     private void PopulateLanguages()
     {
-        var langs = Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages;
+        var langs = global::Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages;
         foreach (var l in langs)
             LanguageCombo.Items.Add(l.LanguageTag);
 
