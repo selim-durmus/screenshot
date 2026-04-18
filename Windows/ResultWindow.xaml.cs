@@ -8,6 +8,7 @@ using WpfPoint = System.Windows.Point;
 using WpfRect = System.Windows.Rect;
 using Rectangle = System.Windows.Shapes.Rectangle;
 using Bitmap = System.Drawing.Bitmap;
+using Color = System.Windows.Media.Color;
 using Cursors = System.Windows.Input.Cursors;
 using Key = System.Windows.Input.Key;
 using Keyboard = System.Windows.Input.Keyboard;
