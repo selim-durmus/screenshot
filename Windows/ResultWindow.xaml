@@ -1,0 +1,107 @@
+<Window x:Class="ScreenshotOCR.Windows.ResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Screenshot"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="True"
+        SizeToContent="Manual"
+        MinWidth="240"
+        MinHeight="160">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="ChromeBg" Color="#F5202020"/>
+        <SolidColorBrush x:Key="ChromeText" Color="#FFEFEFEF"/>
+        <SolidColorBrush x:Key="ButtonHover" Color="#20FFFFFF"/>
+        <SolidColorBrush x:Key="SelectionFill" Color="#663B99FF"/>
+
+        <Style x:Key="ChromeButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource ChromeText}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource ButtonHover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border CornerRadius="12"
+            Background="{StaticResource ChromeBg}"
+            Padding="0"
+            Margin="12">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="0" Opacity="0.4"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title bar -->
+            <Grid x:Name="TitleBar" Grid.Row="0" Height="36" MouseLeftButtonDown="TitleBar_MouseDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="Screenshot"
+                           VerticalAlignment="Center"
+                           Margin="14,0,0,0"
+                           Foreground="{StaticResource ChromeText}"
+                           FontFamily="Segoe UI"
+                           FontSize="12"
+                           Opacity="0.7"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,6,0">
+                    <Button x:Name="CopyAllButton" Style="{StaticResource ChromeButton}"
+                            Content="Copy All" Click="CopyAll_Click" ToolTip="Copy all recognized text"/>
+                    <Button x:Name="CopyImageButton" Style="{StaticResource ChromeButton}"
+                            Content="Copy Image" Click="CopyImage_Click" ToolTip="Copy image to clipboard"/>
+                    <Button x:Name="CloseButton" Style="{StaticResource ChromeButton}"
+                            Content="✕" Click="Close_Click" ToolTip="Close (Esc)"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Image + overlay -->
+            <Border Grid.Row="1" Margin="10,0,10,10" CornerRadius="8" ClipToBounds="True">
+                <Grid x:Name="ImageHost" Background="#111">
+                    <Image x:Name="CapturedImage"
+                           Stretch="Uniform"
+                           SnapsToDevicePixels="True"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Canvas x:Name="OverlayCanvas"
+                            Background="Transparent"
+                            MouseLeftButtonDown="Overlay_MouseDown"
+                            MouseMove="Overlay_MouseMove"
+                            MouseLeftButtonUp="Overlay_MouseUp"
+                            MouseRightButtonUp="Overlay_RightUp"
+                            Cursor="IBeam"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

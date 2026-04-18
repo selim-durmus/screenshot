@@ -1,0 +1,131 @@
+<Window x:Class="ScreenshotOCR.Windows.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Screenshot OCR — Settings"
+        Width="460"
+        Height="360"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="True">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Bg" Color="#F5202020"/>
+        <SolidColorBrush x:Key="Fg" Color="#FFEFEFEF"/>
+        <SolidColorBrush x:Key="SubFg" Color="#FFA0A0A0"/>
+        <SolidColorBrush x:Key="Accent" Color="#FF3B99FF"/>
+        <SolidColorBrush x:Key="FieldBg" Color="#FF2A2A2A"/>
+        <SolidColorBrush x:Key="Hover" Color="#20FFFFFF"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+        </Style>
+
+        <Style x:Key="Hdr" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style x:Key="Sub" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SubFg}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource FieldBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#353535"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+    </Window.Resources>
+
+    <Border CornerRadius="12" Background="{StaticResource Bg}" Margin="12">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="0" Opacity="0.4"/>
+        </Border.Effect>
+
+        <Grid Margin="22">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title + close -->
+            <Grid Grid.Row="0" MouseLeftButtonDown="TitleBar_MouseDown" Margin="0,0,0,16">
+                <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold"/>
+                <Button Content="✕" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Width="28" Height="28" Padding="0"
+                        Background="Transparent" Click="Close_Click"/>
+            </Grid>
+
+            <StackPanel Grid.Row="1">
+
+                <TextBlock Style="{StaticResource Hdr}" Text="Capture shortcut"/>
+                <Border Background="{StaticResource FieldBg}" CornerRadius="6" Padding="10,8" Margin="0,0,0,4">
+                    <Grid>
+                        <TextBlock x:Name="HotkeyDisplay" Text="Ctrl + Shift + X" VerticalAlignment="Center"/>
+                        <Button x:Name="RebindButton" Content="Change"
+                                HorizontalAlignment="Right" Padding="10,3"
+                                Click="Rebind_Click"/>
+                    </Grid>
+                </Border>
+                <TextBlock Style="{StaticResource Sub}"
+                           Text="Click Change, then press your new combination. Esc cancels."
+                           Margin="0,0,0,16"/>
+
+                <CheckBox x:Name="StartupCheck" Content="Launch on Windows startup" Margin="0,0,0,12"/>
+                <CheckBox x:Name="AutoCopyCheck" Content="Copy text to clipboard automatically on selection"
+                          Margin="0,0,0,12"/>
+
+                <TextBlock Style="{StaticResource Hdr}" Text="OCR language"/>
+                <Border Background="{StaticResource FieldBg}" CornerRadius="6" Padding="8,2">
+                    <ComboBox x:Name="LanguageCombo"
+                              Background="Transparent"
+                              Foreground="{StaticResource Fg}"
+                              BorderThickness="0"/>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Cancel" Margin="0,0,8,0" Click="Cancel_Click"/>
+                <Button Style="{StaticResource PrimaryBtn}" Content="Save" Click="Save_Click"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>
