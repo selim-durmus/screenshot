@@ -47,9 +47,12 @@ public static class TesseractOcrService
         try
         {
             using var engine = new TesseractEngine(tessdataPath, lang, EngineMode.LstmOnly);
-            // Treat the crop as a single uniform block of text — mirrors the
-            // user's mental model when they drag a rectangle over a paragraph.
-            engine.DefaultPageSegMode = PageSegMode.SingleBlock;
+            // Auto runs layout analysis first — important for columnar content
+            // (GitHub commit lists, Explorer tables). SingleBlock merged
+            // columns into one logical line, which broke both alignment (one
+            // band spanning multiple visual rows) and selection ordering
+            // (left-col and right-col text adjacent in the flat cell list).
+            engine.DefaultPageSegMode = PageSegMode.Auto;
 
             using var pix = BitmapToPix(sourceBitmap);
             using var page = engine.Process(pix);
@@ -178,31 +181,16 @@ public static class TesseractOcrService
             if (!meta.TryGetValue("bbox", out var bboxLine) || bboxLine.Length < 4)
                 continue;
 
-            double lineX0 = bboxLine[0];
             double lineY0 = bboxLine[1];
-            double lineX1 = bboxLine[2];
             double lineY1 = bboxLine[3];
 
-            // baseline "slope offset" — in hOCR, y = slope*(x - lineX0) + (lineY1 + offset).
-            // Offset is typically 0 for near-horizontal text; treat absent as 0.
-            double slope = 0, yOffset = 0;
-            if (meta.TryGetValue("baseline", out var bl) && bl.Length >= 2)
-            {
-                slope = bl[0];
-                yOffset = bl[1];
-            }
-
-            double xSize = meta.TryGetValue("x_size", out var xs) && xs.Length >= 1 ? xs[0] : (lineY1 - lineY0);
-            double xAsc = meta.TryGetValue("x_ascenders", out var xa) && xa.Length >= 1 ? xa[0] : xSize * 0.25;
-            double xDesc = meta.TryGetValue("x_descenders", out var xd) && xd.Length >= 1 ? xd[0] : xSize * 0.2;
-
-            double midX = (lineX0 + lineX1) / 2;
-            double baselineY = slope * (midX - lineX0) + lineY1 + yOffset;
-
-            double bandTop = Math.Max(0, baselineY - xSize - xAsc);
-            double bandBottom = baselineY + xDesc;
-            double bandY = bandTop / upscaleFactor;
-            double bandH = (bandBottom - bandTop) / upscaleFactor;
+            // Tesseract's line bboxes are already tight to the visible ink on
+            // the line — there's no need to reconstruct them from baseline +
+            // x_size. Just use the bbox directly. This also makes the band
+            // height correct regardless of whether the line has descenders
+            // (the bbox extends to cover them when they're there).
+            double bandY = lineY0 / upscaleFactor;
+            double bandH = (lineY1 - lineY0) / upscaleFactor;
 
             int wordIdx = 0;
             foreach (Match wm in WordRegex.Matches(inner))
