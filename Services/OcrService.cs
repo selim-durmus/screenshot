@@ -104,17 +104,30 @@ public static class OcrService
 
     // --- Ink-bound refinement ---------------------------------------------
     //
-    // Windows.Media.Ocr returns word bounding boxes that are loose vertically —
-    // they include typographic padding above the ink, variable per line/font.
-    // Selection highlights therefore appear "above" the text by an inconsistent
-    // amount. To fix this we lock the source bitmap once, then for each word
-    // scan row-by-row within its reported bbox and measure where the ink
-    // actually starts and ends (rows where enough pixels differ sufficiently
-    // from the estimated background). We replace OCR's Y/Height with those
-    // measured values. Fast — O(image pixels) — and self-correcting per line.
+    // Windows.Media.Ocr returns word bboxes that are loose and sometimes
+    // asymmetric — too tall on top, too short on bottom, varying per line.
+    // To make selection outlines hug the glyphs, we lock the source bitmap
+    // once, scan per-word row-by-row in an expanded region around the OCR
+    // bbox, and measure where the ink actually begins and ends.
+    //
+    // Key subtleties:
+    //  - Background luma is estimated from rows OUTSIDE the OCR bbox (where
+    //    pixels are almost certainly the page background). Estimating it
+    //    from inside the bbox is unreliable — the "top row" can already
+    //    contain glyph ink, which flips the luma comparison and produces
+    //    nonsense results (the original bug the user reported: the bottom
+    //    of the outline cutting through the middle of the glyphs).
+    //  - The median of those samples is used rather than the mean, so one
+    //    stray dark pixel in the padding strip doesn't skew the estimate.
+    //  - The scan range expands 30% past OCR's bbox in each direction to
+    //    catch descenders/ascenders that fall outside the reported bbox.
+    //  - Thresholds are tuned low enough that antialiased glyph edges
+    //    (low contrast with background) still count as ink.
 
-    private const int InkDeltaThreshold = 48;      // luma diff from background to count as "ink"
-    private const double InkRowPixelFraction = 0.05; // row is ink if ≥ this fraction of its width is ink
+    private const int InkDeltaThreshold = 28;      // luma diff from bg to count as "ink"
+    private const double InkRowPixelFraction = 0.03; // row is ink if ≥ this fraction of the bbox width is ink
+    private const double ScanPadFraction = 0.30;     // expand scan range above/below OCR bbox by this much
+    private const int BgPadRows = 3;                 // rows outside bbox to sample for background estimate
 
     private static List<OcrWord> RefineVerticalBoundsToInk(Bitmap bitmap, List<OcrWord> words)
     {
@@ -149,24 +162,19 @@ public static class OcrService
         int x1 = Math.Min(imgW, (int)Math.Ceiling(word.X + word.Width));
         int y1 = Math.Min(imgH, (int)Math.Ceiling(word.Y + word.Height));
         int w = x1 - x0;
-        int h = y1 - y0;
-        if (w <= 1 || h <= 1) return (word.Y, word.Height);
+        int hBox = y1 - y0;
+        if (w <= 1 || hBox <= 1) return (word.Y, word.Height);
 
-        // Estimate background luma from the first and last rows of the bbox.
-        long bgSum = 0; int bgCount = 0;
-        for (int x = x0; x < x1; x++)
-        {
-            bgSum += Luma(pixels, stride, x, y0);
-            bgSum += Luma(pixels, stride, x, y1 - 1);
-            bgCount += 2;
-        }
-        int bgLuma = bgCount > 0 ? (int)(bgSum / bgCount) : 255;
+        int pad = Math.Max(2, (int)Math.Round(hBox * ScanPadFraction));
+        int scanY0 = Math.Max(0, y0 - pad);
+        int scanY1 = Math.Min(imgH, y1 + pad);
 
+        int bgLuma = EstimateBackgroundLuma(pixels, stride, imgH, x0, x1, y0, y1);
         int minInkPixelsPerRow = Math.Max(1, (int)(w * InkRowPixelFraction));
 
         int firstInkRow = -1;
         int lastInkRow = -1;
-        for (int y = y0; y < y1; y++)
+        for (int y = scanY0; y < scanY1; y++)
         {
             int inkCount = 0;
             for (int x = x0; x < x1; x++)
@@ -188,10 +196,43 @@ public static class OcrService
         if (firstInkRow == -1 || lastInkRow < firstInkRow)
             return (word.Y, word.Height);
 
-        // Small 1-pixel top/bottom bleed so antialiased glyph edges aren't clipped.
+        // 1-pixel top/bottom bleed so antialiased edges aren't clipped.
         double inkY = Math.Max(0, firstInkRow - 1);
-        double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 1 + 2);
+        double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 3);
         return (inkY, inkH);
+    }
+
+    // Sample background luma from the padding strips immediately above and
+    // below the OCR bbox. Falls back to the bbox's corners if the word is
+    // too close to the image edge. Uses median rather than mean to shrug
+    // off the occasional dark pixel in the padding region.
+    private static int EstimateBackgroundLuma(
+        byte[] pixels, int stride, int imgH, int x0, int x1, int y0, int y1)
+    {
+        var samples = new List<int>(capacity: (x1 - x0) * BgPadRows * 2);
+
+        int padTopStart = Math.Max(0, y0 - BgPadRows);
+        for (int y = padTopStart; y < y0; y++)
+            for (int x = x0; x < x1; x++)
+                samples.Add(Luma(pixels, stride, x, y));
+
+        int padBotEnd = Math.Min(imgH, y1 + BgPadRows);
+        for (int y = y1; y < padBotEnd; y++)
+            for (int x = x0; x < x1; x++)
+                samples.Add(Luma(pixels, stride, x, y));
+
+        if (samples.Count == 0)
+        {
+            // Word touches image edge — fall back to sampling the four corners
+            // of the bbox, which are usually background even in tight bboxes.
+            samples.Add(Luma(pixels, stride, x0, y0));
+            samples.Add(Luma(pixels, stride, x1 - 1, y0));
+            samples.Add(Luma(pixels, stride, x0, y1 - 1));
+            samples.Add(Luma(pixels, stride, x1 - 1, y1 - 1));
+        }
+
+        samples.Sort();
+        return samples[samples.Count / 2];
     }
 
     private static int Luma(byte[] pixels, int stride, int x, int y)

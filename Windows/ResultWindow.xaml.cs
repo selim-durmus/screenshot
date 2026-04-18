@@ -268,7 +268,7 @@ public partial class ResultWindow : Window
             if (_cells.Count > 0) { _anchor = 0; _cursor = _cells.Count; }
             _dragging = false;
             RenderSelection();
-            TryAutoCopyAndClose();
+            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
             return;
         }
 
@@ -277,7 +277,7 @@ public partial class ResultWindow : Window
             SelectLineAt(caret);
             _dragging = false;
             RenderSelection();
-            TryAutoCopyAndClose();
+            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
             return;
         }
 
@@ -286,7 +286,7 @@ public partial class ResultWindow : Window
             SelectSubwordAt(caret);
             _dragging = false;
             RenderSelection();
-            TryAutoCopyAndClose();
+            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
             return;
         }
 
@@ -323,13 +323,8 @@ public partial class ResultWindow : Window
 
     private void Overlay_RightUp(object sender, MouseButtonEventArgs e)
     {
-        if (CopySelectionToClipboard()) Close();
-    }
-
-    private void TryAutoCopyAndClose()
-    {
-        if (!App.Settings.CopyToClipboardOnSelect) return;
-        if (CopySelectionToClipboard()) Close();
+        // Right-click copies but keeps the window open. Only Ctrl+C closes.
+        CopySelectionToClipboard();
     }
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
