@@ -16,18 +16,7 @@
     <SelfContained>true</SelfContained>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Tesseract" Version="5.2.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="tessdata\*.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
 
   <!-- After `dotnet publish`, drop the built .exe next to README so the user
        doesn't have to walk down bin\Release\net8.0-...\win-x64\publish\ to

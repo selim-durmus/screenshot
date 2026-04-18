@@ -116,7 +116,7 @@ public partial class App : System.Windows.Application
     {
         try
         {
-            var result = await TesseractOcrService.RecognizeAsync(cropped, _settingsService.Current.OcrLanguage);
+            var result = await OcrService.RecognizeAsync(cropped, _settingsService.Current.OcrLanguage);
             var window = new ResultWindow(cropped, result);
             window.Show();
             window.Activate();
