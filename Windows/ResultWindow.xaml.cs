@@ -28,13 +28,12 @@ public partial class ResultWindow : Window
         double X, double Y, double W, double H,
         bool IsLastInWord);
 
-    // OCR word Y/H is refined to actual ink rows upstream (see
-    // OcrService.RefineVerticalBoundsToInk), so the outline can sit directly
+    // Word bounds are refined to actual ink rows upstream (see
+    // OcrService.RefineVerticalBoundsToInk), so the band can sit directly
     // on the measured bounds with no heuristic inset.
     private const double BandTopInset = 0.0;
     private const double BandBottomInset = 0.0;
-    private const double OutlineThickness = 1.5;
-    private const double OutlineCornerRadius = 4;
+    private const double BandCornerRadius = 3;
 
     private readonly Bitmap _bitmap;
     private readonly OcrResult _ocr;
@@ -195,7 +194,6 @@ public partial class ResultWindow : Window
             if (a < b)
             {
                 var (scale, ox, oy) = ImageTransform();
-                var stroke = (SolidColorBrush)FindResource("SelectionStroke");
                 var fill = (SolidColorBrush)FindResource("SelectionFill");
 
                 int i = a;
@@ -212,24 +210,22 @@ public partial class ResultWindow : Window
                     double bandY = lineY + lineH * BandTopInset;
                     double bandH = lineH * (1 - BandTopInset - BandBottomInset);
 
-                    // Pad horizontally slightly so the outline doesn't clip the glyph edges.
-                    double padX = Math.Max(1.5, bandH * 0.15);
-                    double boxX = x1 * scale + ox - padX;
-                    double boxY = bandY * scale + oy;
-                    double boxW = (x2 - x1) * scale + padX * 2;
-                    double boxH = bandH * scale;
+                    double rectX = x1 * scale + ox;
+                    double rectY = bandY * scale + oy;
+                    double rectW = (x2 - x1) * scale;
+                    double rectH = bandH * scale;
 
                     var rect = EnsureBand(needed);
-                    rect.Stroke = stroke;
+                    rect.Stroke = null;
+                    rect.StrokeThickness = 0;
                     rect.Fill = fill;
-                    rect.StrokeThickness = OutlineThickness;
-                    rect.RadiusX = OutlineCornerRadius;
-                    rect.RadiusY = OutlineCornerRadius;
+                    rect.RadiusX = BandCornerRadius;
+                    rect.RadiusY = BandCornerRadius;
                     rect.Visibility = Visibility.Visible;
-                    Canvas.SetLeft(rect, boxX);
-                    Canvas.SetTop(rect, boxY);
-                    rect.Width = boxW;
-                    rect.Height = boxH;
+                    Canvas.SetLeft(rect, rectX);
+                    Canvas.SetTop(rect, rectY);
+                    rect.Width = rectW;
+                    rect.Height = rectH;
                     needed++;
                     i = j;
                 }

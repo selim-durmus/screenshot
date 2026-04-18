@@ -15,8 +15,7 @@
         <SolidColorBrush x:Key="ChromeBg" Color="#F5202020"/>
         <SolidColorBrush x:Key="ChromeText" Color="#FFEFEFEF"/>
         <SolidColorBrush x:Key="ButtonHover" Color="#20FFFFFF"/>
-        <SolidColorBrush x:Key="SelectionStroke" Color="#FF5FB4FF"/>
-        <SolidColorBrush x:Key="SelectionFill" Color="#1A5FB4FF"/>
+        <SolidColorBrush x:Key="SelectionFill" Color="#663B99FF"/>
 
         <Style x:Key="ChromeButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>

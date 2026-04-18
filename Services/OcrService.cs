@@ -124,9 +124,11 @@ public static class OcrService
     //  - Thresholds are tuned low enough that antialiased glyph edges
     //    (low contrast with background) still count as ink.
 
-    private const int InkDeltaThreshold = 28;      // luma diff from bg to count as "ink"
-    private const double InkRowPixelFraction = 0.03; // row is ink if ≥ this fraction of the bbox width is ink
-    private const double ScanPadFraction = 0.30;     // expand scan range above/below OCR bbox by this much
+    private const int InkDeltaThreshold = 22;        // luma diff from bg to count as "ink"
+    private const double InkRowPixelFraction = 0.02; // row is ink if ≥ this fraction of width deviates from bg
+    private const int InkRowPixelCap = 3;            // ...but never require more than this many pixels (so the bottom
+                                                     // row of a long word, which may only have faint stroke ends, still counts)
+    private const double ScanPadFraction = 0.35;    // expand scan range above/below OCR bbox by this much
     private const int BgPadRows = 3;                 // rows outside bbox to sample for background estimate
 
     private static List<OcrWord> RefineVerticalBoundsToInk(Bitmap bitmap, List<OcrWord> words)
@@ -170,7 +172,10 @@ public static class OcrService
         int scanY1 = Math.Min(imgH, y1 + pad);
 
         int bgLuma = EstimateBackgroundLuma(pixels, stride, imgH, x0, x1, y0, y1);
-        int minInkPixelsPerRow = Math.Max(1, (int)(w * InkRowPixelFraction));
+        int minInkPixelsPerRow = Math.Clamp(
+            (int)Math.Round(w * InkRowPixelFraction),
+            1,
+            InkRowPixelCap);
 
         int firstInkRow = -1;
         int lastInkRow = -1;
@@ -196,9 +201,11 @@ public static class OcrService
         if (firstInkRow == -1 || lastInkRow < firstInkRow)
             return (word.Y, word.Height);
 
-        // 1-pixel top/bottom bleed so antialiased edges aren't clipped.
+        // Generous bottom bleed + modest top bleed to cover sub-threshold
+        // antialiased stroke tails (e.g., the very last row of a serif).
+        // inkH = 1 (top bleed) + span + 1 (row inclusive) + 2 (bottom bleed) = span + 4
         double inkY = Math.Max(0, firstInkRow - 1);
-        double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 3);
+        double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 4);
         return (inkY, inkH);
     }
 
