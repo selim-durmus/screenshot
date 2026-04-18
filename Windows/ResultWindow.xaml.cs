@@ -312,7 +312,12 @@ public partial class ResultWindow : Window
         var p = CanvasToImage(e.GetPosition(OverlayCanvas));
         _cursor = CaretAt(p);
         RenderSelection();
-        TryAutoCopyAndClose();
+
+        // Silently copy on mouse-up if the setting is on, but DON'T close —
+        // the user may want to refine the selection or re-copy with Ctrl+C.
+        // Explicit copy actions (Ctrl+C, right-click, double/triple/quad click,
+        // Copy All, Copy Image) still close the window.
+        if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
     }
 
     private void Overlay_RightUp(object sender, MouseButtonEventArgs e)
