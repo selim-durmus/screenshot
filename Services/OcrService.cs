@@ -104,32 +104,32 @@ public static class OcrService
 
     // --- Ink-bound refinement ---------------------------------------------
     //
-    // Windows.Media.Ocr returns word bboxes that are loose and sometimes
-    // asymmetric — too tall on top, too short on bottom, varying per line.
-    // To make selection outlines hug the glyphs, we lock the source bitmap
-    // once, scan per-word row-by-row in an expanded region around the OCR
-    // bbox, and measure where the ink actually begins and ends.
+    // Windows.Media.Ocr returns word bboxes whose vertical extent is
+    // inconsistent: words with descenders (e.g. "deps.json") report a
+    // taller bbox; words of the same line WITHOUT descenders (e.g.
+    // "witcher.exe", "2026-04") often report a bbox that only covers
+    // cap-height down to x-height-ish, cutting off the baseline.
     //
-    // Key subtleties:
-    //  - Background luma is estimated from rows OUTSIDE the OCR bbox (where
-    //    pixels are almost certainly the page background). Estimating it
-    //    from inside the bbox is unreliable — the "top row" can already
-    //    contain glyph ink, which flips the luma comparison and produces
-    //    nonsense results (the original bug the user reported: the bottom
-    //    of the outline cutting through the middle of the glyphs).
-    //  - The median of those samples is used rather than the mean, so one
-    //    stray dark pixel in the padding strip doesn't skew the estimate.
-    //  - The scan range expands 30% past OCR's bbox in each direction to
-    //    catch descenders/ascenders that fall outside the reported bbox.
-    //  - Thresholds are tuned low enough that antialiased glyph edges
-    //    (low contrast with background) still count as ink.
+    // Per-word pixel-sniff suffered from this: for a lone descenderless
+    // word, the seed bbox + small pad doesn't reach the real baseline,
+    // so the measured bottom lands somewhere in the middle of the glyphs.
+    //
+    // Line-level sniff fixes this. For each line we:
+    //   1. Compute the union (minX..maxX, minY..maxY) of all its words'
+    //      OCR bboxes.
+    //   2. Scan rows in an EXPANDED range (±line-height) across the full
+    //      horizontal union. Even if every word on the line has no
+    //      descender, the generous scan window and wide horizontal
+    //      sampling reliably find the true top and bottom ink rows.
+    //   3. Apply the measured (Y, H) to every word on that line, so the
+    //      selection band has uniform height per line.
+    //
+    // Background luma is still estimated from rows OUTSIDE the bbox
+    // (above/below the line), using the median to shrug off stray pixels.
 
-    private const int InkDeltaThreshold = 22;        // luma diff from bg to count as "ink"
-    private const double InkRowPixelFraction = 0.02; // row is ink if ≥ this fraction of width deviates from bg
-    private const int InkRowPixelCap = 3;            // ...but never require more than this many pixels (so the bottom
-                                                     // row of a long word, which may only have faint stroke ends, still counts)
-    private const double ScanPadFraction = 0.35;    // expand scan range above/below OCR bbox by this much
-    private const int BgPadRows = 3;                 // rows outside bbox to sample for background estimate
+    private const int InkDeltaThreshold = 18;
+    private const int MinInkPixelsPerRow = 2;
+    private const int BgPadRows = 3;
 
     private static List<OcrWord> RefineVerticalBoundsToInk(Bitmap bitmap, List<OcrWord> words)
     {
@@ -142,11 +142,30 @@ public static class OcrService
             var pixels = new byte[stride * bitmap.Height];
             Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
 
+            var lineBounds = new Dictionary<int, (double Y, double H)>();
+            foreach (var group in words.GroupBy(w => w.LineIndex))
+            {
+                double ux0 = group.Min(w => w.X);
+                double ux1 = group.Max(w => w.X + w.Width);
+                double uy0 = group.Min(w => w.Y);
+                double uy1 = group.Max(w => w.Y + w.Height);
+
+                int x0 = Math.Max(0, (int)Math.Floor(ux0));
+                int y0 = Math.Max(0, (int)Math.Floor(uy0));
+                int x1 = Math.Min(bitmap.Width, (int)Math.Ceiling(ux1));
+                int y1 = Math.Min(bitmap.Height, (int)Math.Ceiling(uy1));
+
+                var measured = MeasureLineInk(pixels, stride, bitmap.Width, bitmap.Height, x0, y0, x1, y1);
+                lineBounds[group.Key] = measured;
+            }
+
             var refined = new List<OcrWord>(words.Count);
             foreach (var w in words)
             {
-                var (newY, newH) = MeasureInkRows(pixels, stride, bitmap.Width, bitmap.Height, w);
-                refined.Add(w with { Y = newY, Height = newH });
+                var (lineY, lineH) = lineBounds.TryGetValue(w.LineIndex, out var b)
+                    ? b
+                    : (w.Y, w.Height);
+                refined.Add(w with { Y = lineY, Height = lineH });
             }
             return refined;
         }
@@ -156,26 +175,22 @@ public static class OcrService
         }
     }
 
-    private static (double Y, double H) MeasureInkRows(
-        byte[] pixels, int stride, int imgW, int imgH, OcrWord word)
+    private static (double Y, double H) MeasureLineInk(
+        byte[] pixels, int stride, int imgW, int imgH,
+        int x0, int y0, int x1, int y1)
     {
-        int x0 = Math.Max(0, (int)Math.Floor(word.X));
-        int y0 = Math.Max(0, (int)Math.Floor(word.Y));
-        int x1 = Math.Min(imgW, (int)Math.Ceiling(word.X + word.Width));
-        int y1 = Math.Min(imgH, (int)Math.Ceiling(word.Y + word.Height));
         int w = x1 - x0;
         int hBox = y1 - y0;
-        if (w <= 1 || hBox <= 1) return (word.Y, word.Height);
+        if (w <= 1 || hBox <= 1) return (y0, hBox);
 
-        int pad = Math.Max(2, (int)Math.Round(hBox * ScanPadFraction));
+        // Generous scan pad: at least one full line-height beyond OCR's bbox
+        // on each side, with an absolute minimum of 8 px. This makes the
+        // algorithm robust to OCR bboxes that undershoot in any direction.
+        int pad = Math.Max(8, hBox);
         int scanY0 = Math.Max(0, y0 - pad);
         int scanY1 = Math.Min(imgH, y1 + pad);
 
         int bgLuma = EstimateBackgroundLuma(pixels, stride, imgH, x0, x1, y0, y1);
-        int minInkPixelsPerRow = Math.Clamp(
-            (int)Math.Round(w * InkRowPixelFraction),
-            1,
-            InkRowPixelCap);
 
         int firstInkRow = -1;
         int lastInkRow = -1;
@@ -188,10 +203,10 @@ public static class OcrService
                 if (d < -InkDeltaThreshold || d > InkDeltaThreshold)
                 {
                     inkCount++;
-                    if (inkCount >= minInkPixelsPerRow) break;
+                    if (inkCount >= MinInkPixelsPerRow) break;
                 }
             }
-            if (inkCount >= minInkPixelsPerRow)
+            if (inkCount >= MinInkPixelsPerRow)
             {
                 if (firstInkRow == -1) firstInkRow = y;
                 lastInkRow = y;
@@ -199,11 +214,8 @@ public static class OcrService
         }
 
         if (firstInkRow == -1 || lastInkRow < firstInkRow)
-            return (word.Y, word.Height);
+            return (y0, hBox);
 
-        // Generous bottom bleed + modest top bleed to cover sub-threshold
-        // antialiased stroke tails (e.g., the very last row of a serif).
-        // inkH = 1 (top bleed) + span + 1 (row inclusive) + 2 (bottom bleed) = span + 4
         double inkY = Math.Max(0, firstInkRow - 1);
         double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 4);
         return (inkY, inkH);
