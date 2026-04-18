@@ -40,11 +40,13 @@ public partial class ResultWindow : Window
     private readonly List<Cell> _cells = new();
     private readonly Dictionary<int, (double Y, double H)> _lineMetrics = new();
     private readonly List<Rectangle> _bandPool = new();
+    private readonly List<Rectangle> _debugRects = new();
 
     private int _anchor = -1;
     private int _cursor = -1;
     private bool _dragging;
     private bool _didInitialSize;
+    private bool _debugOn;
 
     public ResultWindow(Bitmap bitmap, OcrResult ocr)
     {
@@ -55,7 +57,7 @@ public partial class ResultWindow : Window
 
         Loaded += OnLoaded;
         KeyDown += OnKeyDown;
-        SizeChanged += (_, _) => RenderSelection();
+        SizeChanged += (_, _) => { RenderSelection(); RenderDebug(); };
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -468,6 +470,76 @@ public partial class ResultWindow : Window
         if (e.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control && _cells.Count > 0)
         {
             _anchor = 0; _cursor = _cells.Count; RenderSelection();
+        }
+
+        // F9 — toggle diagnostic overlay. Shows a thin red outline at every
+        // word's position as returned by our OCR pipeline. If these rectangles
+        // visually hug the text, rendering is correct and the bug is in
+        // selection math. If they don't, the issue is upstream (OCR data or
+        // the image->canvas coordinate transform).
+        if (e.Key == Key.F9)
+        {
+            _debugOn = !_debugOn;
+            RenderDebug();
+        }
+    }
+
+    private void RenderDebug()
+    {
+        foreach (var r in _debugRects) OverlayCanvas.Children.Remove(r);
+        _debugRects.Clear();
+
+        if (!_debugOn || _ocr.Words.Count == 0) return;
+
+        var (scale, ox, oy) = ImageTransform();
+        var wordStroke = new SolidColorBrush(Color.FromArgb(200, 255, 60, 60));  // red
+        var lineStroke = new SolidColorBrush(Color.FromArgb(160, 80, 200, 255)); // cyan
+        wordStroke.Freeze();
+        lineStroke.Freeze();
+
+        // Word bboxes in red.
+        foreach (var w in _ocr.Words)
+        {
+            var r = new Rectangle
+            {
+                Stroke = wordStroke,
+                StrokeThickness = 1,
+                Fill = null,
+                IsHitTestVisible = false,
+                SnapsToDevicePixels = true
+            };
+            Canvas.SetLeft(r, w.X * scale + ox);
+            Canvas.SetTop(r, w.Y * scale + oy);
+            r.Width = w.Width * scale;
+            r.Height = w.Height * scale;
+            OverlayCanvas.Children.Add(r);
+            _debugRects.Add(r);
+        }
+
+        // Line bboxes in cyan (slightly offset so they don't stack exactly on
+        // top of the word bboxes and become invisible).
+        foreach (var group in _ocr.Words.GroupBy(w => w.LineIndex))
+        {
+            double x1 = group.Min(w => w.X);
+            double x2 = group.Max(w => w.X + w.Width);
+            double y1 = group.Min(w => w.Y);
+            double y2 = group.Max(w => w.Y + w.Height);
+
+            var r = new Rectangle
+            {
+                Stroke = lineStroke,
+                StrokeThickness = 1,
+                Fill = null,
+                IsHitTestVisible = false,
+                SnapsToDevicePixels = true,
+                StrokeDashArray = { 2, 2 }
+            };
+            Canvas.SetLeft(r, x1 * scale + ox);
+            Canvas.SetTop(r, y1 * scale + oy);
+            r.Width = (x2 - x1) * scale;
+            r.Height = (y2 - y1) * scale;
+            OverlayCanvas.Children.Add(r);
+            _debugRects.Add(r);
         }
     }
 
