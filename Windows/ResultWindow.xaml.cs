@@ -44,11 +44,16 @@ public partial class ResultWindow : Window
     private readonly List<Rectangle> _bandPool = new();
     private readonly List<Rectangle> _debugRects = new();
 
-    private int _anchor = -1;
-    private int _cursor = -1;
+    // Rectangular selection model (image-pixel space). Null = no selection.
+    private WpfRect? _selectionRect;
+    // Anchor point for an in-progress drag (image-pixel space).
+    private WpfPoint? _dragStart;
     private bool _dragging;
     private bool _didInitialSize;
     private bool _debugOn;
+
+    // Dashed marquee rectangle shown during drag, hidden otherwise.
+    private Rectangle? _marquee;
 
     public ResultWindow(Bitmap bitmap, OcrResult ocr)
     {
@@ -151,100 +156,92 @@ public partial class ResultWindow : Window
         return new WpfPoint((p.X - ox) / scale, (p.Y - oy) / scale);
     }
 
-    private int CaretAt(WpfPoint imgPt)
+    // --- Rendering: rectangular selection ----------------------------------
+    //
+    // The highlight shown to the user is NOT the raw selection rectangle.
+    // For each line that has any cell intersecting `_selectionRect`, we draw
+    // one band spanning the horizontal range of the intersected cells on
+    // that line (clamped to the line's Y/H). The marquee rectangle itself
+    // is only shown during a live drag.
+
+    private IEnumerable<Cell> IntersectedCells()
     {
-        if (_cells.Count == 0) return 0;
-
-        int bestIdx = 0;
-        double bestDistSq = double.MaxValue;
-        for (int i = 0; i < _cells.Count; i++)
+        if (_selectionRect is not WpfRect r || r.Width <= 0 || r.Height <= 0) yield break;
+        foreach (var c in _cells)
         {
-            var c = _cells[i];
-            double dx = imgPt.X < c.X ? c.X - imgPt.X
-                      : imgPt.X > c.X + c.W ? imgPt.X - (c.X + c.W)
-                      : 0;
-            double dy = imgPt.Y < c.Y ? c.Y - imgPt.Y
-                      : imgPt.Y > c.Y + c.H ? imgPt.Y - (c.Y + c.H)
-                      : 0;
-            double d2 = dx * dx + dy * dy;
-            if (d2 < bestDistSq) { bestDistSq = d2; bestIdx = i; }
+            var cellRect = new WpfRect(c.X, c.Y, c.W, c.H);
+            if (r.IntersectsWith(cellRect)) yield return c;
         }
-
-        int line = _cells[bestIdx].LineIndex;
-        var onLine = new List<(int idx, Cell c)>();
-        for (int i = 0; i < _cells.Count; i++)
-            if (_cells[i].LineIndex == line) onLine.Add((i, _cells[i]));
-
-        if (onLine.Count == 0) return 0;
-
-        if (imgPt.X <= onLine[0].c.X) return onLine[0].idx;
-        if (imgPt.X >= onLine[^1].c.X + onLine[^1].c.W) return onLine[^1].idx + 1;
-
-        for (int k = 0; k < onLine.Count; k++)
-        {
-            var (idx, c) = onLine[k];
-            if (imgPt.X < c.X + c.W)
-            {
-                double mid = c.X + c.W / 2;
-                return imgPt.X < mid ? idx : idx + 1;
-            }
-        }
-        return onLine[^1].idx + 1;
     }
-
-    // --- Rendering: outlined boxes (macOS Live Text style) -----------------
 
     private void RenderSelection()
     {
         int needed = 0;
 
-        if (_anchor >= 0 && _cursor >= 0 && _cells.Count > 0)
+        if (_cells.Count > 0 && _selectionRect is WpfRect)
         {
-            int a = Math.Min(_anchor, _cursor);
-            int b = Math.Max(_anchor, _cursor);
-            if (a < b)
+            var (scale, ox, oy) = ImageTransform();
+            var fill = (SolidColorBrush)FindResource("SelectionFill");
+
+            // Group intersected cells by line, draw one band per line spanning
+            // only the horizontal range of the selected cells on that line.
+            foreach (var lineGroup in IntersectedCells().GroupBy(c => c.LineIndex))
             {
-                var (scale, ox, oy) = ImageTransform();
-                var fill = (SolidColorBrush)FindResource("SelectionFill");
+                double x1 = lineGroup.Min(c => c.X);
+                double x2 = lineGroup.Max(c => c.X + c.W);
+                if (!_lineMetrics.TryGetValue(lineGroup.Key, out var m)) continue;
+                double bandY = m.Y + m.H * BandTopInset;
+                double bandH = m.H * (1 - BandTopInset - BandBottomInset);
 
-                int i = a;
-                while (i < b)
-                {
-                    int line = _cells[i].LineIndex;
-                    int j = i;
-                    while (j < b && _cells[j].LineIndex == line) j++;
-
-                    double x1 = _cells[i].X;
-                    double x2 = _cells[j - 1].X + _cells[j - 1].W;
-
-                    var (lineY, lineH) = _lineMetrics[line];
-                    double bandY = lineY + lineH * BandTopInset;
-                    double bandH = lineH * (1 - BandTopInset - BandBottomInset);
-
-                    double rectX = x1 * scale + ox;
-                    double rectY = bandY * scale + oy;
-                    double rectW = (x2 - x1) * scale;
-                    double rectH = bandH * scale;
-
-                    var rect = EnsureBand(needed);
-                    rect.Stroke = null;
-                    rect.StrokeThickness = 0;
-                    rect.Fill = fill;
-                    rect.RadiusX = BandCornerRadius;
-                    rect.RadiusY = BandCornerRadius;
-                    rect.Visibility = Visibility.Visible;
-                    Canvas.SetLeft(rect, rectX);
-                    Canvas.SetTop(rect, rectY);
-                    rect.Width = rectW;
-                    rect.Height = rectH;
-                    needed++;
-                    i = j;
-                }
+                var rect = EnsureBand(needed);
+                rect.Stroke = null;
+                rect.StrokeThickness = 0;
+                rect.Fill = fill;
+                rect.RadiusX = BandCornerRadius;
+                rect.RadiusY = BandCornerRadius;
+                rect.Visibility = Visibility.Visible;
+                Canvas.SetLeft(rect, x1 * scale + ox);
+                Canvas.SetTop(rect, bandY * scale + oy);
+                rect.Width = (x2 - x1) * scale;
+                rect.Height = bandH * scale;
+                needed++;
             }
         }
 
         for (int k = needed; k < _bandPool.Count; k++)
             _bandPool[k].Visibility = Visibility.Collapsed;
+
+        RenderMarquee();
+    }
+
+    private void RenderMarquee()
+    {
+        if (_marquee is null)
+        {
+            _marquee = new Rectangle
+            {
+                Stroke = new SolidColorBrush(Color.FromArgb(220, 255, 255, 255)),
+                StrokeThickness = 1,
+                StrokeDashArray = { 3, 2 },
+                Fill = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                IsHitTestVisible = false,
+                Visibility = Visibility.Collapsed
+            };
+            OverlayCanvas.Children.Add(_marquee);
+        }
+
+        if (!_dragging || _selectionRect is not WpfRect r || r.Width <= 0 || r.Height <= 0)
+        {
+            _marquee.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var (scale, ox, oy) = ImageTransform();
+        Canvas.SetLeft(_marquee, r.X * scale + ox);
+        Canvas.SetTop(_marquee, r.Y * scale + oy);
+        _marquee.Width = r.Width * scale;
+        _marquee.Height = r.Height * scale;
+        _marquee.Visibility = Visibility.Visible;
     }
 
     private Rectangle EnsureBand(int index)
@@ -268,11 +265,10 @@ public partial class ResultWindow : Window
     private void Overlay_MouseDown(object sender, MouseButtonEventArgs e)
     {
         var p = CanvasToImage(e.GetPosition(OverlayCanvas));
-        int caret = CaretAt(p);
 
         if (e.ClickCount >= 4)
         {
-            if (_cells.Count > 0) { _anchor = 0; _cursor = _cells.Count; }
+            _selectionRect = AllCellsRect();
             _dragging = false;
             RenderSelection();
             if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
@@ -281,7 +277,7 @@ public partial class ResultWindow : Window
 
         if (e.ClickCount == 3)
         {
-            SelectLineAt(caret);
+            _selectionRect = LineRectAt(p);
             _dragging = false;
             RenderSelection();
             if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
@@ -290,15 +286,15 @@ public partial class ResultWindow : Window
 
         if (e.ClickCount == 2)
         {
-            SelectSubwordAt(caret);
+            _selectionRect = SubwordRectAt(p);
             _dragging = false;
             RenderSelection();
             if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
             return;
         }
 
-        _anchor = caret;
-        _cursor = caret;
+        _dragStart = p;
+        _selectionRect = new WpfRect(p, p);
         _dragging = true;
         RenderSelection();
         OverlayCanvas.CaptureMouse();
@@ -306,9 +302,9 @@ public partial class ResultWindow : Window
 
     private void Overlay_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_dragging) return;
-        var p = CanvasToImage(e.GetPosition(OverlayCanvas));
-        _cursor = CaretAt(p);
+        if (!_dragging || _dragStart is not WpfPoint a) return;
+        var b = CanvasToImage(e.GetPosition(OverlayCanvas));
+        _selectionRect = new WpfRect(a, b);
         RenderSelection();
     }
 
@@ -317,14 +313,19 @@ public partial class ResultWindow : Window
         if (!_dragging) return;
         OverlayCanvas.ReleaseMouseCapture();
         _dragging = false;
-        var p = CanvasToImage(e.GetPosition(OverlayCanvas));
-        _cursor = CaretAt(p);
+
+        if (_dragStart is WpfPoint a)
+        {
+            var b = CanvasToImage(e.GetPosition(OverlayCanvas));
+            var r = new WpfRect(a, b);
+            // Treat a mouseup-at-mousedown (no drag) as "clear selection".
+            _selectionRect = (r.Width < 1 && r.Height < 1) ? (WpfRect?)null : r;
+        }
+        _dragStart = null;
         RenderSelection();
 
-        // Silently copy on mouse-up if the setting is on, but DON'T close —
-        // the user may want to refine the selection or re-copy with Ctrl+C.
-        // Explicit copy actions (Ctrl+C, right-click, double/triple/quad click,
-        // Copy All, Copy Image) still close the window.
+        // Silently copy on mouse-up if the setting is on. Doesn't close the
+        // window — only explicit copies (Ctrl+C, Copy All, Copy Image) do.
         if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard();
     }
 
@@ -336,72 +337,95 @@ public partial class ResultWindow : Window
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
 
-    private int ClampCaretToCell(int caret)
+    // Find the cell closest to an image-pixel point (reused for word/line click expansion).
+    private int NearestCellIndex(WpfPoint imgPt)
     {
-        if (caret >= _cells.Count) return _cells.Count - 1;
-        if (caret < 0) return 0;
-        return caret;
-    }
-
-    private void SelectSubwordAt(int caret)
-    {
-        if (_cells.Count == 0) return;
-        int idx = ClampCaretToCell(caret);
-
-        if (!IsWordChar(_cells[idx].Ch))
+        int bestIdx = 0;
+        double bestDistSq = double.MaxValue;
+        for (int i = 0; i < _cells.Count; i++)
         {
-            _anchor = idx;
-            _cursor = idx + 1;
-            return;
+            var c = _cells[i];
+            double dx = imgPt.X < c.X ? c.X - imgPt.X
+                      : imgPt.X > c.X + c.W ? imgPt.X - (c.X + c.W)
+                      : 0;
+            double dy = imgPt.Y < c.Y ? c.Y - imgPt.Y
+                      : imgPt.Y > c.Y + c.H ? imgPt.Y - (c.Y + c.H)
+                      : 0;
+            double d2 = dx * dx + dy * dy;
+            if (d2 < bestDistSq) { bestDistSq = d2; bestIdx = i; }
         }
-
-        int line = _cells[idx].LineIndex;
-        int start = idx;
-        while (start > 0
-               && _cells[start - 1].LineIndex == line
-               && IsWordChar(_cells[start - 1].Ch))
-            start--;
-
-        int end = idx;
-        while (end < _cells.Count - 1
-               && _cells[end + 1].LineIndex == line
-               && IsWordChar(_cells[end + 1].Ch))
-            end++;
-
-        _anchor = start;
-        _cursor = end + 1;
+        return bestIdx;
     }
 
-    private void SelectLineAt(int caret)
+    private WpfRect? SubwordRectAt(WpfPoint imgPt)
     {
-        if (_cells.Count == 0) return;
-        int idx = ClampCaretToCell(caret);
+        if (_cells.Count == 0) return null;
+        int idx = NearestCellIndex(imgPt);
+        var hit = _cells[idx];
+
+        int start = idx, end = idx;
+        if (IsWordChar(hit.Ch))
+        {
+            while (start > 0 && _cells[start - 1].LineIndex == hit.LineIndex
+                   && IsWordChar(_cells[start - 1].Ch)) start--;
+            while (end < _cells.Count - 1 && _cells[end + 1].LineIndex == hit.LineIndex
+                   && IsWordChar(_cells[end + 1].Ch)) end++;
+        }
+        // Non-word-char (punctuation): select just that char.
+
+        return UnionCellRect(start, end);
+    }
+
+    private WpfRect? LineRectAt(WpfPoint imgPt)
+    {
+        if (_cells.Count == 0) return null;
+        int idx = NearestCellIndex(imgPt);
         int line = _cells[idx].LineIndex;
 
-        int start = idx;
+        int start = idx, end = idx;
         while (start > 0 && _cells[start - 1].LineIndex == line) start--;
-        int end = idx;
         while (end < _cells.Count - 1 && _cells[end + 1].LineIndex == line) end++;
 
-        _anchor = start;
-        _cursor = end + 1;
+        return UnionCellRect(start, end);
+    }
+
+    private WpfRect? AllCellsRect()
+    {
+        if (_cells.Count == 0) return null;
+        return UnionCellRect(0, _cells.Count - 1);
+    }
+
+    private WpfRect UnionCellRect(int fromIdx, int toIdx)
+    {
+        double x1 = double.MaxValue, y1 = double.MaxValue;
+        double x2 = double.MinValue, y2 = double.MinValue;
+        for (int i = fromIdx; i <= toIdx; i++)
+        {
+            var c = _cells[i];
+            x1 = Math.Min(x1, c.X);
+            y1 = Math.Min(y1, c.Y);
+            x2 = Math.Max(x2, c.X + c.W);
+            y2 = Math.Max(y2, c.Y + c.H);
+        }
+        return new WpfRect(x1, y1, x2 - x1, y2 - y1);
     }
 
     // --- Clipboard ---------------------------------------------------------
 
     private string BuildSelectedText()
     {
-        if (_anchor < 0 || _cursor < 0) return string.Empty;
-        int a = Math.Min(_anchor, _cursor);
-        int b = Math.Max(_anchor, _cursor);
-        if (a == b) return string.Empty;
+        var selected = IntersectedCells()
+            .OrderBy(c => c.LineIndex)
+            .ThenBy(c => c.WordIndex)
+            .ToList();
+        if (selected.Count == 0) return string.Empty;
 
         var sb = new System.Text.StringBuilder();
-        int currentLine = _cells[a].LineIndex;
-        int currentWord = _cells[a].WordIndex;
-        for (int i = a; i < b; i++)
+        int currentLine = selected[0].LineIndex;
+        int currentWord = selected[0].WordIndex;
+        for (int i = 0; i < selected.Count; i++)
         {
-            var c = _cells[i];
+            var c = selected[i];
             if (c.LineIndex != currentLine)
             {
                 sb.Append('\n');
@@ -478,7 +502,8 @@ public partial class ResultWindow : Window
 
         if (e.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control && _cells.Count > 0)
         {
-            _anchor = 0; _cursor = _cells.Count; RenderSelection();
+            _selectionRect = AllCellsRect();
+            RenderSelection();
         }
 
         // F9 — toggle diagnostic overlay. Shows a thin red outline at every
