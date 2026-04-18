@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
 using Int32Rect = System.Windows.Int32Rect;
 using Size = System.Drawing.Size;
