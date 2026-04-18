@@ -13,27 +13,32 @@ namespace ScreenshotOCR.Windows;
 
 public partial class SettingsWindow : Window
 {
+    private enum CaptureTarget { None, Capture, Close }
+
     private readonly SettingsService _settings;
-    private HotkeyBinding _pendingHotkey;
-    private bool _capturingHotkey;
+    private HotkeyBinding _pendingCapture;
+    private HotkeyBinding _pendingClose;
+    private CaptureTarget _capturingTarget = CaptureTarget.None;
 
     public SettingsWindow(SettingsService settings)
     {
         InitializeComponent();
         _settings = settings;
-        _pendingHotkey = new HotkeyBinding
-        {
-            Modifiers = settings.Current.CaptureHotkey.Modifiers,
-            Key = settings.Current.CaptureHotkey.Key
-        };
 
-        HotkeyDisplay.Text = _pendingHotkey.Display();
+        _pendingCapture = Clone(settings.Current.CaptureHotkey);
+        _pendingClose = Clone(settings.Current.CloseHotkey);
+
+        HotkeyDisplay.Text = _pendingCapture.Display();
+        CloseHotkeyDisplay.Text = _pendingClose.Display();
         StartupCheck.IsChecked = StartupService.IsEnabled();
         AutoCopyCheck.IsChecked = settings.Current.CopyToClipboardOnSelect;
 
         PopulateLanguages();
         KeyDown += OnKeyDown;
     }
+
+    private static HotkeyBinding Clone(HotkeyBinding b) =>
+        new() { Modifiers = b.Modifiers, Key = b.Key };
 
     private void PopulateLanguages()
     {
@@ -51,15 +56,42 @@ public partial class SettingsWindow : Window
 
     private void Rebind_Click(object sender, RoutedEventArgs e)
     {
-        _capturingHotkey = true;
-        RebindButton.Content = "Press keys…";
-        HotkeyDisplay.Text = "…";
+        StartCapturing(CaptureTarget.Capture);
+    }
+
+    private void RebindClose_Click(object sender, RoutedEventArgs e)
+    {
+        StartCapturing(CaptureTarget.Close);
+    }
+
+    private void StartCapturing(CaptureTarget target)
+    {
+        _capturingTarget = target;
+        if (target == CaptureTarget.Capture)
+        {
+            RebindButton.Content = "Press keys…";
+            HotkeyDisplay.Text = "…";
+        }
+        else
+        {
+            RebindCloseButton.Content = "Press keys…";
+            CloseHotkeyDisplay.Text = "…";
+        }
         Focus();
+    }
+
+    private void ResetCapturing()
+    {
+        RebindButton.Content = "Change";
+        RebindCloseButton.Content = "Change";
+        HotkeyDisplay.Text = _pendingCapture.Display();
+        CloseHotkeyDisplay.Text = _pendingClose.Display();
+        _capturingTarget = CaptureTarget.None;
     }
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
-        if (!_capturingHotkey)
+        if (_capturingTarget == CaptureTarget.None)
         {
             if (e.Key == Key.Escape) Close_Click(this, new RoutedEventArgs());
             return;
@@ -69,9 +101,7 @@ public partial class SettingsWindow : Window
 
         if (e.Key == Key.Escape)
         {
-            _capturingHotkey = false;
-            RebindButton.Content = "Change";
-            HotkeyDisplay.Text = _pendingHotkey.Display();
+            ResetCapturing();
             return;
         }
 
@@ -93,15 +123,24 @@ public partial class SettingsWindow : Window
         else if (key == Key.PrintScreen) keyStr = "PrintScreen";
         else if (key == Key.Space) keyStr = "Space";
 
-        _pendingHotkey = new HotkeyBinding { Modifiers = mods, Key = keyStr };
-        HotkeyDisplay.Text = _pendingHotkey.Display();
-        _capturingHotkey = false;
-        RebindButton.Content = "Change";
+        var newBinding = new HotkeyBinding { Modifiers = mods, Key = keyStr };
+
+        if (_capturingTarget == CaptureTarget.Capture)
+        {
+            _pendingCapture = newBinding;
+        }
+        else
+        {
+            _pendingClose = newBinding;
+        }
+
+        ResetCapturing();
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        _settings.Current.CaptureHotkey = _pendingHotkey;
+        _settings.Current.CaptureHotkey = _pendingCapture;
+        _settings.Current.CloseHotkey = _pendingClose;
         _settings.Current.CopyToClipboardOnSelect = AutoCopyCheck.IsChecked == true;
         if (LanguageCombo.SelectedItem is string lang)
             _settings.Current.OcrLanguage = lang;

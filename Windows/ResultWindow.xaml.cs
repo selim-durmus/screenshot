@@ -28,11 +28,12 @@ public partial class ResultWindow : Window
         double X, double Y, double W, double H,
         bool IsLastInWord);
 
-    // OCR bounding boxes include a small amount of typographic padding above
-    // the visible glyphs. Shrink the rendered band toward the box's vertical
-    // center so the highlight visually aligns to the ink.
-    private const double BandTopInset = 0.08;
-    private const double BandBottomInset = 0.04;
+    // Vertical inset on each side for the outline so it hugs the ink rather than
+    // OCR's loose typographic bounds.
+    private const double BandTopInset = 0.06;
+    private const double BandBottomInset = 0.02;
+    private const double OutlineThickness = 1.5;
+    private const double OutlineCornerRadius = 4;
 
     private readonly Bitmap _bitmap;
     private readonly OcrResult _ocr;
@@ -106,8 +107,6 @@ public partial class ResultWindow : Window
             }
         }
 
-        // Stable per-line Y/H from every cell on the line, so band geometry doesn't
-        // jitter based on which subset is selected.
         foreach (var group in _cells.GroupBy(c => c.LineIndex))
         {
             double yTop = group.Min(c => c.Y);
@@ -141,9 +140,6 @@ public partial class ResultWindow : Window
         return new WpfPoint((p.X - ox) / scale, (p.Y - oy) / scale);
     }
 
-    // Find caret index (0..cells.Count) nearest to a point in image-pixel space.
-    // Resolves columnar ambiguity by first picking the closest cell by rectangle
-    // distance (x+y), then placing the caret by X within that cell's line.
     private int CaretAt(WpfPoint imgPt)
     {
         if (_cells.Count == 0) return 0;
@@ -185,7 +181,7 @@ public partial class ResultWindow : Window
         return onLine[^1].idx + 1;
     }
 
-    // --- Rendering ---------------------------------------------------------
+    // --- Rendering: outlined boxes (macOS Live Text style) -----------------
 
     private void RenderSelection()
     {
@@ -198,7 +194,8 @@ public partial class ResultWindow : Window
             if (a < b)
             {
                 var (scale, ox, oy) = ImageTransform();
-                var brush = (SolidColorBrush)FindResource("SelectionFill");
+                var stroke = (SolidColorBrush)FindResource("SelectionStroke");
+                var fill = (SolidColorBrush)FindResource("SelectionFill");
 
                 int i = a;
                 while (i < b)
@@ -210,19 +207,28 @@ public partial class ResultWindow : Window
                     double x1 = _cells[i].X;
                     double x2 = _cells[j - 1].X + _cells[j - 1].W;
 
-                    // Use the line's precomputed Y/H so the band stays put regardless
-                    // of which cells within the line happen to be selected.
                     var (lineY, lineH) = _lineMetrics[line];
                     double bandY = lineY + lineH * BandTopInset;
                     double bandH = lineH * (1 - BandTopInset - BandBottomInset);
 
+                    // Pad horizontally slightly so the outline doesn't clip the glyph edges.
+                    double padX = Math.Max(1.5, bandH * 0.15);
+                    double boxX = x1 * scale + ox - padX;
+                    double boxY = bandY * scale + oy;
+                    double boxW = (x2 - x1) * scale + padX * 2;
+                    double boxH = bandH * scale;
+
                     var rect = EnsureBand(needed);
-                    rect.Fill = brush;
+                    rect.Stroke = stroke;
+                    rect.Fill = fill;
+                    rect.StrokeThickness = OutlineThickness;
+                    rect.RadiusX = OutlineCornerRadius;
+                    rect.RadiusY = OutlineCornerRadius;
                     rect.Visibility = Visibility.Visible;
-                    Canvas.SetLeft(rect, x1 * scale + ox);
-                    Canvas.SetTop(rect, bandY * scale + oy);
-                    rect.Width = (x2 - x1) * scale;
-                    rect.Height = bandH * scale;
+                    Canvas.SetLeft(rect, boxX);
+                    Canvas.SetTop(rect, boxY);
+                    rect.Width = boxW;
+                    rect.Height = boxH;
                     needed++;
                     i = j;
                 }
@@ -240,9 +246,8 @@ public partial class ResultWindow : Window
             var r = new Rectangle
             {
                 IsHitTestVisible = false,
-                RadiusX = 2,
-                RadiusY = 2,
-                Visibility = Visibility.Collapsed
+                Visibility = Visibility.Collapsed,
+                SnapsToDevicePixels = true
             };
             OverlayCanvas.Children.Add(r);
             _bandPool.Add(r);
@@ -262,7 +267,7 @@ public partial class ResultWindow : Window
             if (_cells.Count > 0) { _anchor = 0; _cursor = _cells.Count; }
             _dragging = false;
             RenderSelection();
-            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
+            TryAutoCopyAndClose();
             return;
         }
 
@@ -271,7 +276,7 @@ public partial class ResultWindow : Window
             SelectLineAt(caret);
             _dragging = false;
             RenderSelection();
-            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
+            TryAutoCopyAndClose();
             return;
         }
 
@@ -280,7 +285,7 @@ public partial class ResultWindow : Window
             SelectSubwordAt(caret);
             _dragging = false;
             RenderSelection();
-            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
+            TryAutoCopyAndClose();
             return;
         }
 
@@ -307,12 +312,18 @@ public partial class ResultWindow : Window
         var p = CanvasToImage(e.GetPosition(OverlayCanvas));
         _cursor = CaretAt(p);
         RenderSelection();
-        if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
+        TryAutoCopyAndClose();
     }
 
     private void Overlay_RightUp(object sender, MouseButtonEventArgs e)
     {
-        CopySelectionToClipboard(silent: false);
+        if (CopySelectionToClipboard()) Close();
+    }
+
+    private void TryAutoCopyAndClose()
+    {
+        if (!App.Settings.CopyToClipboardOnSelect) return;
+        if (CopySelectionToClipboard()) Close();
     }
 
     private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
@@ -324,7 +335,6 @@ public partial class ResultWindow : Window
         return caret;
     }
 
-    // Alphanumeric run (plus '_') — breaks on dots, commas, hyphens, etc.
     private void SelectSubwordAt(int caret)
     {
         if (_cells.Count == 0) return;
@@ -332,7 +342,6 @@ public partial class ResultWindow : Window
 
         if (!IsWordChar(_cells[idx].Ch))
         {
-            // Clicked on a punctuation char — select just that one.
             _anchor = idx;
             _cursor = idx + 1;
             return;
@@ -401,15 +410,13 @@ public partial class ResultWindow : Window
         return sb.ToString();
     }
 
-    private void CopySelectionToClipboard(bool silent)
+    // Returns true if something was actually written to the clipboard.
+    private bool CopySelectionToClipboard()
     {
         var text = BuildSelectedText();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            if (!silent) CopyAll_Click(this, new RoutedEventArgs());
-            return;
-        }
-        try { System.Windows.Clipboard.SetText(text); } catch { }
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        try { System.Windows.Clipboard.SetText(text); return true; }
+        catch { return false; }
     }
 
     private void CopyAll_Click(object sender, RoutedEventArgs e)
@@ -439,12 +446,63 @@ public partial class ResultWindow : Window
 
     private void OnKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) Close();
+        // Configurable close hotkey (default Ctrl+W) — plus Esc always works as a
+        // universal cancel key.
+        if (e.Key == Key.Escape || MatchesBinding(e, App.Settings.CloseHotkey))
+        {
+            Close();
+            return;
+        }
+
         if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control)
-            CopySelectionToClipboard(silent: false);
+        {
+            if (CopySelectionToClipboard())
+            {
+                Close();
+            }
+            else if (!string.IsNullOrWhiteSpace(_ocr.FullText))
+            {
+                // Nothing selected — copy all as a fallback. CopyAll_Click closes on its own.
+                CopyAll_Click(this, new RoutedEventArgs());
+            }
+            return;
+        }
+
         if (e.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control && _cells.Count > 0)
         {
             _anchor = 0; _cursor = _cells.Count; RenderSelection();
         }
+    }
+
+    private static bool MatchesBinding(KeyEventArgs e, HotkeyBinding b)
+    {
+        var effectiveKey = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        HotkeyModifiers mods = HotkeyModifiers.None;
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) mods |= HotkeyModifiers.Control;
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) mods |= HotkeyModifiers.Shift;
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) mods |= HotkeyModifiers.Alt;
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Windows)) mods |= HotkeyModifiers.Win;
+        if (mods != b.Modifiers) return false;
+
+        var target = ParseKey(b.Key);
+        return target.HasValue && effectiveKey == target.Value;
+    }
+
+    private static Key? ParseKey(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        s = s.Trim().ToUpperInvariant();
+        if (s.Length == 1 && s[0] >= 'A' && s[0] <= 'Z') return Key.A + (s[0] - 'A');
+        if (s.Length == 1 && s[0] >= '0' && s[0] <= '9') return Key.D0 + (s[0] - '0');
+        return s switch
+        {
+            "F1" => Key.F1, "F2" => Key.F2, "F3" => Key.F3, "F4" => Key.F4,
+            "F5" => Key.F5, "F6" => Key.F6, "F7" => Key.F7, "F8" => Key.F8,
+            "F9" => Key.F9, "F10" => Key.F10, "F11" => Key.F11, "F12" => Key.F12,
+            "SPACE" => Key.Space,
+            "PRINTSCREEN" or "PRTSC" => Key.PrintScreen,
+            _ => null
+        };
     }
 }

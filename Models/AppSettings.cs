@@ -8,6 +8,12 @@ public class AppSettings
         Key = "X"
     };
 
+    public HotkeyBinding CloseHotkey { get; set; } = new()
+    {
+        Modifiers = HotkeyModifiers.Control,
+        Key = "W"
+    };
+
     public bool LaunchOnStartup { get; set; } = false;
 
     public bool CopyToClipboardOnSelect { get; set; } = true;

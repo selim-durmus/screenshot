@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Screenshot OCR — Settings"
         Width="460"
-        Height="360"
+        Height="480"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         WindowStyle="None"
@@ -17,6 +17,7 @@
         <SolidColorBrush x:Key="SubFg" Color="#FFA0A0A0"/>
         <SolidColorBrush x:Key="Accent" Color="#FF3B99FF"/>
         <SolidColorBrush x:Key="FieldBg" Color="#FF2A2A2A"/>
+        <SolidColorBrush x:Key="FieldHover" Color="#FF353535"/>
         <SolidColorBrush x:Key="Hover" Color="#20FFFFFF"/>
 
         <Style TargetType="TextBlock">
@@ -54,7 +55,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#353535"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource FieldHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -71,6 +72,118 @@
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- Dark ComboBox -->
+        <Style x:Key="DarkComboBoxItem" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd"
+                                Background="Transparent"
+                                CornerRadius="4"
+                                Padding="10,6"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter TextElement.Foreground="{StaticResource Fg}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource FieldHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource FieldHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="Background" Value="{StaticResource FieldBg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItem}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Focusable="False"
+                                          ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Bd"
+                                                Background="{StaticResource FieldBg}"
+                                                CornerRadius="6"
+                                                Padding="10,8"
+                                                SnapsToDevicePixels="True">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <ContentPresenter x:Name="ContentHost" Grid.Column="0"/>
+                                                <Path Grid.Column="1"
+                                                      Width="8" Height="5"
+                                                      Data="M0,0 L4,4 L8,0 Z"
+                                                      Fill="{StaticResource SubFg}"
+                                                      Stretch="Fill"
+                                                      VerticalAlignment="Center"
+                                                      Margin="8,0,0,0"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource FieldHover}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <ContentPresenter IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              Margin="10,8"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"
+                                              TextElement.Foreground="{StaticResource Fg}"/>
+
+                            <Popup x:Name="Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   PopupAnimation="Slide"
+                                   Focusable="False">
+                                <Border MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="{StaticResource FieldBg}"
+                                        CornerRadius="6"
+                                        Margin="0,4,0,0"
+                                        Padding="4"
+                                        SnapsToDevicePixels="True">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" BlurRadius="16" ShadowDepth="2" Opacity="0.5"/>
+                                    </Border.Effect>
+                                    <ScrollViewer>
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
@@ -107,19 +220,27 @@
                 </Border>
                 <TextBlock Style="{StaticResource Sub}"
                            Text="Click Change, then press your new combination. Esc cancels."
-                           Margin="0,0,0,16"/>
+                           Margin="0,0,0,14"/>
+
+                <TextBlock Style="{StaticResource Hdr}" Text="Close screenshot shortcut"/>
+                <Border Background="{StaticResource FieldBg}" CornerRadius="6" Padding="10,8" Margin="0,0,0,4">
+                    <Grid>
+                        <TextBlock x:Name="CloseHotkeyDisplay" Text="Ctrl + W" VerticalAlignment="Center"/>
+                        <Button x:Name="RebindCloseButton" Content="Change"
+                                HorizontalAlignment="Right" Padding="10,3"
+                                Click="RebindClose_Click"/>
+                    </Grid>
+                </Border>
+                <TextBlock Style="{StaticResource Sub}"
+                           Text="Closes the captured-image window. Esc always works as a fallback."
+                           Margin="0,0,0,14"/>
 
                 <CheckBox x:Name="StartupCheck" Content="Launch on Windows startup" Margin="0,0,0,12"/>
                 <CheckBox x:Name="AutoCopyCheck" Content="Copy text to clipboard automatically on selection"
-                          Margin="0,0,0,12"/>
+                          Margin="0,0,0,14"/>
 
                 <TextBlock Style="{StaticResource Hdr}" Text="OCR language"/>
-                <Border Background="{StaticResource FieldBg}" CornerRadius="6" Padding="8,2">
-                    <ComboBox x:Name="LanguageCombo"
-                              Background="Transparent"
-                              Foreground="{StaticResource Fg}"
-                              BorderThickness="0"/>
-                </Border>
+                <ComboBox x:Name="LanguageCombo"/>
             </StackPanel>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
