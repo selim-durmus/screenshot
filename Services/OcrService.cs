@@ -189,9 +189,9 @@ public static class OcrService
             return (word.Y, word.Height);
 
         // Small 1-pixel top/bottom bleed so antialiased glyph edges aren't clipped.
-        double y = Math.Max(0, firstInkRow - 1);
-        double hh = Math.Min(imgH - y, lastInkRow - firstInkRow + 1 + 2);
-        return (y, hh);
+        double inkY = Math.Max(0, firstInkRow - 1);
+        double inkH = Math.Min(imgH - inkY, lastInkRow - firstInkRow + 1 + 2);
+        return (inkY, inkH);
     }
 
     private static int Luma(byte[] pixels, int stride, int x, int y)
