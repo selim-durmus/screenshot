@@ -1,8 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Runtime.InteropServices;
-using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using Int32Rect = System.Windows.Int32Rect;
 using Size = System.Drawing.Size;
@@ -52,24 +50,27 @@ public static class CaptureService
         return cropped;
     }
 
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr hObject);
-
     public static BitmapSource ToBitmapSource(Bitmap bmp)
     {
-        // HBitmap interop preserves pixel dimensions without any DPI round-trip.
-        // This keeps image-pixel space == WPF display space (modulo a constant scale).
-        IntPtr hBitmap = bmp.GetHbitmap();
+        // Force 96 DPI so BitmapSource.Width in DIPs == Bitmap.Width in pixels.
+        // CreateBitmapSourceFromHBitmap uses system DPI (e.g., 144 on 150% scaled
+        // displays) which breaks our pixel->DIP scale math in the overlay.
+        var wb = new System.Windows.Media.Imaging.WriteableBitmap(
+            bmp.Width, bmp.Height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+
+        var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         try
         {
-            var src = Imaging.CreateBitmapSourceFromHBitmap(
-                hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-            src.Freeze();
-            return src;
+            wb.WritePixels(
+                new Int32Rect(0, 0, bmp.Width, bmp.Height),
+                data.Scan0,
+                data.Stride * bmp.Height,
+                data.Stride);
         }
-        finally
-        {
-            DeleteObject(hBitmap);
-        }
+        finally { bmp.UnlockBits(data); }
+
+        wb.Freeze();
+        return wb;
     }
 }
