@@ -21,7 +21,6 @@ namespace ScreenshotOCR.Windows;
 
 public partial class ResultWindow : Window
 {
-    // A single character's rect in image-pixel space.
     private record Cell(
         char Ch,
         int LineIndex,
@@ -29,10 +28,16 @@ public partial class ResultWindow : Window
         double X, double Y, double W, double H,
         bool IsLastInWord);
 
-    // A caret position between two adjacent cells in reading order. 0..Count.
+    // OCR bounding boxes include a small amount of typographic padding above
+    // the visible glyphs. Shrink the rendered band toward the box's vertical
+    // center so the highlight visually aligns to the ink.
+    private const double BandTopInset = 0.08;
+    private const double BandBottomInset = 0.04;
+
     private readonly Bitmap _bitmap;
     private readonly OcrResult _ocr;
     private readonly List<Cell> _cells = new();
+    private readonly Dictionary<int, (double Y, double H)> _lineMetrics = new();
     private readonly List<Rectangle> _bandPool = new();
 
     private int _anchor = -1;
@@ -81,6 +86,8 @@ public partial class ResultWindow : Window
     private void BuildCells()
     {
         _cells.Clear();
+        _lineMetrics.Clear();
+
         foreach (var word in _ocr.Words.OrderBy(w => w.LineIndex).ThenBy(w => w.WordIndex))
         {
             int n = Math.Max(1, word.Text.Length);
@@ -97,6 +104,15 @@ public partial class ResultWindow : Window
                     word.Height,
                     IsLastInWord: i == word.Text.Length - 1));
             }
+        }
+
+        // Stable per-line Y/H from every cell on the line, so band geometry doesn't
+        // jitter based on which subset is selected.
+        foreach (var group in _cells.GroupBy(c => c.LineIndex))
+        {
+            double yTop = group.Min(c => c.Y);
+            double yBot = group.Max(c => c.Y + c.H);
+            _lineMetrics[group.Key] = (yTop, yBot - yTop);
         }
     }
 
@@ -125,34 +141,35 @@ public partial class ResultWindow : Window
         return new WpfPoint((p.X - ox) / scale, (p.Y - oy) / scale);
     }
 
-    // Caret index at image-space point. 0..cells.Count.
-    // Caret i means "between cell i-1 and cell i", so selection range is [a, b) exclusive end.
+    // Find caret index (0..cells.Count) nearest to a point in image-pixel space.
+    // Resolves columnar ambiguity by first picking the closest cell by rectangle
+    // distance (x+y), then placing the caret by X within that cell's line.
     private int CaretAt(WpfPoint imgPt)
     {
         if (_cells.Count == 0) return 0;
 
-        // Pick the line whose y-band contains the point, or the nearest one.
-        int bestLine = -1;
-        double bestLineDist = double.MaxValue;
-        foreach (var group in _cells.GroupBy(c => c.LineIndex))
+        int bestIdx = 0;
+        double bestDistSq = double.MaxValue;
+        for (int i = 0; i < _cells.Count; i++)
         {
-            double yTop = group.Min(c => c.Y);
-            double yBot = group.Max(c => c.Y + c.H);
-            double dist = imgPt.Y < yTop ? yTop - imgPt.Y
-                        : imgPt.Y > yBot ? imgPt.Y - yBot
-                        : 0;
-            if (dist < bestLineDist) { bestLineDist = dist; bestLine = group.Key; }
+            var c = _cells[i];
+            double dx = imgPt.X < c.X ? c.X - imgPt.X
+                      : imgPt.X > c.X + c.W ? imgPt.X - (c.X + c.W)
+                      : 0;
+            double dy = imgPt.Y < c.Y ? c.Y - imgPt.Y
+                      : imgPt.Y > c.Y + c.H ? imgPt.Y - (c.Y + c.H)
+                      : 0;
+            double d2 = dx * dx + dy * dy;
+            if (d2 < bestDistSq) { bestDistSq = d2; bestIdx = i; }
         }
-        if (bestLine < 0) return 0;
 
-        // Cells on that line in reading order, with their global indices.
+        int line = _cells[bestIdx].LineIndex;
         var onLine = new List<(int idx, Cell c)>();
         for (int i = 0; i < _cells.Count; i++)
-            if (_cells[i].LineIndex == bestLine) onLine.Add((i, _cells[i]));
+            if (_cells[i].LineIndex == line) onLine.Add((i, _cells[i]));
 
         if (onLine.Count == 0) return 0;
 
-        // Left of the first cell: caret before first; right of last cell: caret after last.
         if (imgPt.X <= onLine[0].c.X) return onLine[0].idx;
         if (imgPt.X >= onLine[^1].c.X + onLine[^1].c.W) return onLine[^1].idx + 1;
 
@@ -172,7 +189,6 @@ public partial class ResultWindow : Window
 
     private void RenderSelection()
     {
-        // Ensure pool is big enough — one band per distinct line in selection.
         int needed = 0;
 
         if (_anchor >= 0 && _cursor >= 0 && _cells.Count > 0)
@@ -190,21 +206,23 @@ public partial class ResultWindow : Window
                     int line = _cells[i].LineIndex;
                     int j = i;
                     while (j < b && _cells[j].LineIndex == line) j++;
-                    // Band from cells[i..j) on this line.
+
                     double x1 = _cells[i].X;
                     double x2 = _cells[j - 1].X + _cells[j - 1].W;
-                    double y = _cells[i].Y;
-                    double h = _cells[i].H;
-                    // Use line max height in case of varying glyphs.
-                    for (int k = i; k < j; k++) h = Math.Max(h, _cells[k].H);
+
+                    // Use the line's precomputed Y/H so the band stays put regardless
+                    // of which cells within the line happen to be selected.
+                    var (lineY, lineH) = _lineMetrics[line];
+                    double bandY = lineY + lineH * BandTopInset;
+                    double bandH = lineH * (1 - BandTopInset - BandBottomInset);
 
                     var rect = EnsureBand(needed);
                     rect.Fill = brush;
                     rect.Visibility = Visibility.Visible;
                     Canvas.SetLeft(rect, x1 * scale + ox);
-                    Canvas.SetTop(rect, y * scale + oy);
+                    Canvas.SetTop(rect, bandY * scale + oy);
                     rect.Width = (x2 - x1) * scale;
-                    rect.Height = h * scale;
+                    rect.Height = bandH * scale;
                     needed++;
                     i = j;
                 }
@@ -239,20 +257,29 @@ public partial class ResultWindow : Window
         var p = CanvasToImage(e.GetPosition(OverlayCanvas));
         int caret = CaretAt(p);
 
-        if (e.ClickCount >= 3)
+        if (e.ClickCount >= 4)
         {
             if (_cells.Count > 0) { _anchor = 0; _cursor = _cells.Count; }
-            RenderSelection();
             _dragging = false;
+            RenderSelection();
+            if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
+            return;
+        }
+
+        if (e.ClickCount == 3)
+        {
+            SelectLineAt(caret);
+            _dragging = false;
+            RenderSelection();
             if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
             return;
         }
 
         if (e.ClickCount == 2)
         {
-            SelectWordAt(caret);
-            RenderSelection();
+            SelectSubwordAt(caret);
             _dragging = false;
+            RenderSelection();
             if (App.Settings.CopyToClipboardOnSelect) CopySelectionToClipboard(silent: true);
             return;
         }
@@ -288,22 +315,56 @@ public partial class ResultWindow : Window
         CopySelectionToClipboard(silent: false);
     }
 
-    private void SelectWordAt(int caret)
+    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    private int ClampCaretToCell(int caret)
+    {
+        if (caret >= _cells.Count) return _cells.Count - 1;
+        if (caret < 0) return 0;
+        return caret;
+    }
+
+    // Alphanumeric run (plus '_') — breaks on dots, commas, hyphens, etc.
+    private void SelectSubwordAt(int caret)
     {
         if (_cells.Count == 0) return;
-        int idx = Math.Clamp(caret, 0, _cells.Count - 1);
-        // If caret is at end (after last cell), use previous cell for word boundary.
-        if (caret == _cells.Count) idx = _cells.Count - 1;
+        int idx = ClampCaretToCell(caret);
+
+        if (!IsWordChar(_cells[idx].Ch))
+        {
+            // Clicked on a punctuation char — select just that one.
+            _anchor = idx;
+            _cursor = idx + 1;
+            return;
+        }
 
         int line = _cells[idx].LineIndex;
-        int word = _cells[idx].WordIndex;
+        int start = idx;
+        while (start > 0
+               && _cells[start - 1].LineIndex == line
+               && IsWordChar(_cells[start - 1].Ch))
+            start--;
+
+        int end = idx;
+        while (end < _cells.Count - 1
+               && _cells[end + 1].LineIndex == line
+               && IsWordChar(_cells[end + 1].Ch))
+            end++;
+
+        _anchor = start;
+        _cursor = end + 1;
+    }
+
+    private void SelectLineAt(int caret)
+    {
+        if (_cells.Count == 0) return;
+        int idx = ClampCaretToCell(caret);
+        int line = _cells[idx].LineIndex;
 
         int start = idx;
-        while (start > 0 && _cells[start - 1].LineIndex == line && _cells[start - 1].WordIndex == word)
-            start--;
+        while (start > 0 && _cells[start - 1].LineIndex == line) start--;
         int end = idx;
-        while (end < _cells.Count - 1 && _cells[end + 1].LineIndex == line && _cells[end + 1].WordIndex == word)
-            end++;
+        while (end < _cells.Count - 1 && _cells[end + 1].LineIndex == line) end++;
 
         _anchor = start;
         _cursor = end + 1;
