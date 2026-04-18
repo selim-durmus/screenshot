@@ -355,6 +355,7 @@ public partial class ResultWindow : Window
     {
         if (string.IsNullOrWhiteSpace(_ocr.FullText)) return;
         try { System.Windows.Clipboard.SetText(_ocr.FullText); } catch { }
+        Close();
     }
 
     private void CopyImage_Click(object sender, RoutedEventArgs e)
@@ -365,6 +366,7 @@ public partial class ResultWindow : Window
             System.Windows.Clipboard.SetImage(src);
         }
         catch { }
+        Close();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
