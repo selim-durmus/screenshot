@@ -1,10 +1,12 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using Tesseract;
+using ImageFormat = System.Drawing.Imaging.ImageFormat;
+using ImageLockMode = System.Drawing.Imaging.ImageLockMode;
+using PixelFormat = System.Drawing.Imaging.PixelFormat;
 using OcrResult = ScreenshotOCR.Models.OcrResult;
 using OcrWord = ScreenshotOCR.Models.OcrWord;
 
