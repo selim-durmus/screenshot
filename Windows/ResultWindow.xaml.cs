@@ -9,6 +9,7 @@ using WpfRect = System.Windows.Rect;
 using Rectangle = System.Windows.Shapes.Rectangle;
 using Bitmap = System.Drawing.Bitmap;
 using Color = System.Windows.Media.Color;
+using FontFamily = System.Windows.Media.FontFamily;
 using Cursors = System.Windows.Input.Cursors;
 using Key = System.Windows.Input.Key;
 using Keyboard = System.Windows.Input.Keyboard;
@@ -489,16 +490,55 @@ public partial class ResultWindow : Window
     {
         foreach (var r in _debugRects) OverlayCanvas.Children.Remove(r);
         _debugRects.Clear();
+        if (_debugLabel is not null) { OverlayCanvas.Children.Remove(_debugLabel); _debugLabel = null; }
 
         if (!_debugOn || _ocr.Words.Count == 0) return;
 
         var (scale, ox, oy) = ImageTransform();
-        var wordStroke = new SolidColorBrush(Color.FromArgb(200, 255, 60, 60));  // red
-        var lineStroke = new SolidColorBrush(Color.FromArgb(160, 80, 200, 255)); // cyan
-        wordStroke.Freeze();
-        lineStroke.Freeze();
+        var wordStroke = new SolidColorBrush(Color.FromArgb(200, 255, 60, 60));   // red — OCR word bbox
+        var lineStroke = new SolidColorBrush(Color.FromArgb(160, 80, 200, 255));  // cyan — OCR line bbox
+        var canvasStroke = new SolidColorBrush(Color.FromArgb(220, 255, 230, 0)); // yellow — canvas bounds
+        var imageStroke = new SolidColorBrush(Color.FromArgb(220, 0, 230, 80));   // green — computed image display rect
+        wordStroke.Freeze(); lineStroke.Freeze(); canvasStroke.Freeze(); imageStroke.Freeze();
 
-        // Word bboxes in red.
+        // YELLOW: the full bounds of OverlayCanvas (where we think the Canvas
+        // lives). If this matches the container edges visually, the Canvas
+        // is layered correctly on top of the Image.
+        var canvasBox = new Rectangle
+        {
+            Stroke = canvasStroke,
+            StrokeThickness = 2,
+            Fill = null,
+            IsHitTestVisible = false,
+            StrokeDashArray = { 1, 2 }
+        };
+        Canvas.SetLeft(canvasBox, 0);
+        Canvas.SetTop(canvasBox, 0);
+        canvasBox.Width = OverlayCanvas.ActualWidth;
+        canvasBox.Height = OverlayCanvas.ActualHeight;
+        OverlayCanvas.Children.Add(canvasBox);
+        _debugRects.Add(canvasBox);
+
+        // GREEN: where OUR transform thinks the rendered image lives inside
+        // the canvas (offsetX, offsetY, bitmapWidth * scale, bitmapHeight * scale).
+        // If this green rectangle doesn't visually match the edges of the
+        // captured image, our transform has a bug — and everything else in the
+        // overlay is going to be misaligned by the same amount.
+        var imageBox = new Rectangle
+        {
+            Stroke = imageStroke,
+            StrokeThickness = 2,
+            Fill = null,
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(imageBox, ox);
+        Canvas.SetTop(imageBox, oy);
+        imageBox.Width = _bitmap.Width * scale;
+        imageBox.Height = _bitmap.Height * scale;
+        OverlayCanvas.Children.Add(imageBox);
+        _debugRects.Add(imageBox);
+
+        // RED: OCR word bboxes.
         foreach (var w in _ocr.Words)
         {
             var r = new Rectangle
@@ -517,8 +557,7 @@ public partial class ResultWindow : Window
             _debugRects.Add(r);
         }
 
-        // Line bboxes in cyan (slightly offset so they don't stack exactly on
-        // top of the word bboxes and become invisible).
+        // CYAN: line bboxes (union of words on each line).
         foreach (var group in _ocr.Words.GroupBy(w => w.LineIndex))
         {
             double x1 = group.Min(w => w.X);
@@ -542,7 +581,28 @@ public partial class ResultWindow : Window
             OverlayCanvas.Children.Add(r);
             _debugRects.Add(r);
         }
+
+        // Telemetry label: the raw transform numbers as a sanity check.
+        var label = new TextBlock
+        {
+            Text = $"bmp: {_bitmap.Width}×{_bitmap.Height}  "
+                 + $"canvas: {OverlayCanvas.ActualWidth:0}×{OverlayCanvas.ActualHeight:0}  "
+                 + $"scale: {scale:0.000}  offset: ({ox:0.0}, {oy:0.0})  "
+                 + $"bmpSrc DPI: {((BitmapSource)CapturedImage.Source).DpiX:0}×{((BitmapSource)CapturedImage.Source).DpiY:0}",
+            Foreground = canvasStroke,
+            Background = new SolidColorBrush(Color.FromArgb(180, 0, 0, 0)),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            Padding = new Thickness(6, 3, 6, 3),
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(label, 4);
+        Canvas.SetTop(label, 4);
+        OverlayCanvas.Children.Add(label);
+        _debugLabel = label;
     }
+
+    private TextBlock? _debugLabel;
 
     private static bool MatchesBinding(KeyEventArgs e, HotkeyBinding b)
     {
