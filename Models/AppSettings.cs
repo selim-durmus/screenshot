@@ -4,7 +4,7 @@ public class AppSettings
 {
     public HotkeyBinding CaptureHotkey { get; set; } = new()
     {
-        Modifiers = HotkeyModifiers.Control | HotkeyModifiers.Shift,
+        Modifiers = HotkeyModifiers.Shift | HotkeyModifiers.Alt,
         Key = "X"
     };
 
@@ -16,7 +16,7 @@ public class AppSettings
 
     public bool LaunchOnStartup { get; set; } = false;
 
-    public bool CopyToClipboardOnSelect { get; set; } = true;
+    public bool CopyToClipboardOnSelect { get; set; } = false;
 
     public string OcrLanguage { get; set; } = "en-US";
 }

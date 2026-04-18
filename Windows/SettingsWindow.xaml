@@ -187,7 +187,13 @@
         </Style>
     </Window.Resources>
 
-    <Border CornerRadius="12" Background="{StaticResource Bg}" Margin="12">
+    <!-- MouseLeftButtonDown on the outer Border lets the user drag the window
+         from anywhere that isn't an interactive child control. Buttons, the
+         ComboBox, and CheckBoxes handle their own mouse events so they aren't
+         affected; clicks on the Border's background (top edge, padding, gaps
+         between controls) bubble up here and trigger DragMove. -->
+    <Border CornerRadius="12" Background="{StaticResource Bg}" Margin="12"
+            MouseLeftButtonDown="TitleBar_MouseDown">
         <Border.Effect>
             <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="0" Opacity="0.4"/>
         </Border.Effect>

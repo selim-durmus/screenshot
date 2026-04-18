@@ -366,9 +366,19 @@ public partial class ResultWindow : Window
         int start = idx, end = idx;
         if (IsWordChar(hit.Ch))
         {
-            while (start > 0 && _cells[start - 1].LineIndex == hit.LineIndex
+            // Also stop at OCR word boundaries (WordIndex changes). We don't
+            // emit whitespace characters into _cells, so without the WordIndex
+            // guard the alphanumeric walker would sail straight through from
+            // one word into the next on the same line — which is why
+            // double-clicking "witcher" in "The witcher mods" was expanding
+            // to the whole line.
+            while (start > 0
+                   && _cells[start - 1].LineIndex == hit.LineIndex
+                   && _cells[start - 1].WordIndex == hit.WordIndex
                    && IsWordChar(_cells[start - 1].Ch)) start--;
-            while (end < _cells.Count - 1 && _cells[end + 1].LineIndex == hit.LineIndex
+            while (end < _cells.Count - 1
+                   && _cells[end + 1].LineIndex == hit.LineIndex
+                   && _cells[end + 1].WordIndex == hit.WordIndex
                    && IsWordChar(_cells[end + 1].Ch)) end++;
         }
         // Non-word-char (punctuation): select just that char.

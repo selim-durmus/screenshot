@@ -12,12 +12,9 @@ dotnet publish -c Release -r win-x64 --self-contained true
 
 if %errorlevel% equ 0 (
     echo.
-    echo =====================================
-    echo   Build succeeded.
-    echo   Run ScreenshotOCR.exe to start it.
-    echo =====================================
-    echo.
-    timeout /t 4 >nul
+    echo Build succeeded. Launching ScreenshotOCR...
+    start "" "%~dp0ScreenshotOCR.exe"
+    timeout /t 2 >nul
 ) else (
     echo.
     echo Build FAILED. Press any key to close.
