@@ -29,4 +29,14 @@
     </Content>
   </ItemGroup>
 
+  <!-- After `dotnet publish`, drop the built .exe next to README so the user
+       doesn't have to walk down bin\Release\net8.0-...\win-x64\publish\ to
+       find it. -->
+  <Target Name="CopyPublishedExeToRoot" AfterTargets="Publish">
+    <Copy SourceFiles="$(PublishDir)$(AssemblyName).exe"
+          DestinationFolder="$(MSBuildProjectDirectory)"
+          OverwriteReadOnlyFiles="true"
+          Condition="Exists('$(PublishDir)$(AssemblyName).exe')" />
+  </Target>
+
 </Project>

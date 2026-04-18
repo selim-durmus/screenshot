@@ -123,8 +123,15 @@ public partial class ResultWindow : Window
 
     private (double scale, double offsetX, double offsetY) ImageTransform()
     {
-        double ctrlW = CapturedImage.ActualWidth;
-        double ctrlH = CapturedImage.ActualHeight;
+        // Read dimensions from OverlayCanvas, NOT CapturedImage. WPF's Image
+        // control with Stretch=Uniform measures itself to its content size
+        // after scaling — so CapturedImage.ActualHeight shrinks to the
+        // uniformly-scaled image height, missing the vertical letterbox in
+        // the Grid cell. OverlayCanvas fills the cell and reports its true
+        // dimensions. Using Image's ActualHeight made offsetY collapse to 0
+        // and offset every overlay upward by the letterbox amount.
+        double ctrlW = OverlayCanvas.ActualWidth;
+        double ctrlH = OverlayCanvas.ActualHeight;
         if (ctrlW <= 0 || ctrlH <= 0) return (1, 0, 0);
 
         double imgW = _bitmap.Width;
