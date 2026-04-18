@@ -28,10 +28,11 @@ public partial class ResultWindow : Window
         double X, double Y, double W, double H,
         bool IsLastInWord);
 
-    // Vertical inset on each side for the outline so it hugs the ink rather than
-    // OCR's loose typographic bounds.
-    private const double BandTopInset = 0.06;
-    private const double BandBottomInset = 0.02;
+    // OCR word Y/H is refined to actual ink rows upstream (see
+    // OcrService.RefineVerticalBoundsToInk), so the outline can sit directly
+    // on the measured bounds with no heuristic inset.
+    private const double BandTopInset = 0.0;
+    private const double BandBottomInset = 0.0;
     private const double OutlineThickness = 1.5;
     private const double OutlineCornerRadius = 4;
 
