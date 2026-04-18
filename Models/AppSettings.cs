@@ -18,7 +18,7 @@ public class AppSettings
 
     public bool CopyToClipboardOnSelect { get; set; } = true;
 
-    public string OcrLanguage { get; set; } = "en-US";
+    public string OcrLanguage { get; set; } = "eng";
 }
 
 [Flags]

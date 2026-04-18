@@ -42,17 +42,19 @@ public partial class SettingsWindow : Window
 
     private void PopulateLanguages()
     {
-        var langs = global::Windows.Media.Ocr.OcrEngine.AvailableRecognizerLanguages;
-        foreach (var l in langs)
-            LanguageCombo.Items.Add(l.LanguageTag);
+        // Tesseract language codes bundled with the app. Display name for the
+        // user, tag code stored in settings.
+        LanguageCombo.DisplayMemberPath = "Name";
+        LanguageCombo.SelectedValuePath = "Code";
 
-        if (LanguageCombo.Items.Count == 0)
-            LanguageCombo.Items.Add(_settings.Current.OcrLanguage);
+        LanguageCombo.Items.Add(new LanguageOption("English", "eng"));
+        LanguageCombo.Items.Add(new LanguageOption("Turkish", "tur"));
 
-        LanguageCombo.SelectedItem = _settings.Current.OcrLanguage;
-        if (LanguageCombo.SelectedIndex < 0 && LanguageCombo.Items.Count > 0)
-            LanguageCombo.SelectedIndex = 0;
+        LanguageCombo.SelectedValue = _settings.Current.OcrLanguage;
+        if (LanguageCombo.SelectedIndex < 0) LanguageCombo.SelectedIndex = 0;
     }
+
+    private record LanguageOption(string Name, string Code);
 
     private void Rebind_Click(object sender, RoutedEventArgs e)
     {
@@ -142,7 +144,7 @@ public partial class SettingsWindow : Window
         _settings.Current.CaptureHotkey = _pendingCapture;
         _settings.Current.CloseHotkey = _pendingClose;
         _settings.Current.CopyToClipboardOnSelect = AutoCopyCheck.IsChecked == true;
-        if (LanguageCombo.SelectedItem is string lang)
+        if (LanguageCombo.SelectedValue is string lang)
             _settings.Current.OcrLanguage = lang;
 
         _settings.Save();
