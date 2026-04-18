@@ -2,6 +2,8 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 
 namespace ScreenshotOCR.Services;
@@ -49,17 +51,24 @@ public static class CaptureService
         return cropped;
     }
 
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
+
     public static BitmapSource ToBitmapSource(Bitmap bmp)
     {
-        using var ms = new MemoryStream();
-        bmp.Save(ms, ImageFormat.Png);
-        ms.Position = 0;
-        var bi = new BitmapImage();
-        bi.BeginInit();
-        bi.CacheOption = BitmapCacheOption.OnLoad;
-        bi.StreamSource = ms;
-        bi.EndInit();
-        bi.Freeze();
-        return bi;
+        // HBitmap interop preserves pixel dimensions without any DPI round-trip.
+        // This keeps image-pixel space == WPF display space (modulo a constant scale).
+        IntPtr hBitmap = bmp.GetHbitmap();
+        try
+        {
+            var src = Imaging.CreateBitmapSourceFromHBitmap(
+                hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            src.Freeze();
+            return src;
+        }
+        finally
+        {
+            DeleteObject(hBitmap);
+        }
     }
 }
